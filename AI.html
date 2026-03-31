@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>ULTIMATE AI VPS</title>
+
+<style>
+body{margin:0;font-family:Arial;background:#0f172a;color:white;display:flex;height:100vh;}
+#sidebar{width:240px;background:#020617;padding:10px;}
+#main{flex:1;display:flex;flex-direction:column;}
+#chat{flex:1;overflow:auto;padding:15px;}
+.msg{margin:8px 0;}
+.user{color:#38bdf8;}
+.ai{color:#22c55e;}
+#inputArea{display:flex;padding:10px;background:#020617;}
+#input{flex:1;padding:10px;border:none;}
+button{width:100%;margin-top:5px;padding:8px;background:#111;color:white;border:none;}
+textarea{width:100%;margin-top:5px;background:#111;color:white;border:none;}
+</style>
+
+</head>
+
+<body>
+
+<div id="sidebar">
+<h3>⚙️ AI Control</h3>
+
+<button onclick="newChat()">+ New Chat</button>
+<button onclick="auto()">🚀 Auto Mode</button>
+<button onclick="stopAuto()">⏹ Stop</button>
+<button onclick="voice()">🎤 Voice</button>
+
+<input type="file" id="file">
+
+<textarea id="system" rows="6">
+You are an advanced AI agent.
+Think step by step.
+Use tools when needed.
+</textarea>
+
+</div>
+
+<div id="main">
+<div id="chat"></div>
+
+<div id="inputArea">
+<input id="input" placeholder="Ask anything..." 
+onkeydown="if(event.key==='Enter') send();">
+</div>
+</div>
+
+<script>
+let chats=JSON.parse(localStorage.getItem("chats")||"[[]]");
+let current=0;
+let fileData="";
+let running=false;
+
+// SAVE
+function save(){localStorage.setItem("chats",JSON.stringify(chats));}
+
+// ADD MESSAGE
+function add(text,role){
+  let chat=document.getElementById("chat");
+  let d=document.createElement("div");
+  d.className="msg "+role;
+  d.innerHTML="<b>"+role+":</b> "+text;
+  chat.appendChild(d);
+  chat.scrollTop=chat.scrollHeight;
+}
+
+// NEW CHAT
+function newChat(){
+  chats.push([]);
+  current=chats.length-1;
+  document.getElementById("chat").innerHTML="";
+  save();
+}
+
+// FILE
+document.getElementById("file").onchange=e=>{
+  let r=new FileReader();
+  r.onload=()=>fileData=r.result;
+  r.readAsText(e.target.files[0]);
+};
+
+// TOOLS
+function calc(x){try{return eval(x);}catch{return "error";}}
+
+async function search(q){
+  let r=await fetch("https://api.duckduckgo.com/?q="+encodeURIComponent(q)+"&format=json");
+  let d=await r.json();
+  return d.AbstractText||"no result";
+}
+
+function speak(t){
+  speechSynthesis.speak(new SpeechSynthesisUtterance(t));
+}
+
+function voice(){
+  let r=new (window.SpeechRecognition||window.webkitSpeechRecognition)();
+  r.onresult=e=>{
+    document.getElementById("input").value=e.results[0][0].transcript;
+    send();
+  };
+  r.start();
+}
+
+// MEMORY
+function getMemory(){
+  return chats[current].slice(-10).map(m=>m.role+": "+m.text).join("\n");
+}
+
+// CALL AI (SUDAH DIUBAH)
+async function callAI(prompt){
+  let res=await fetch("http://GANTI_IP_VPS_KAMU:11434/api/generate",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      model:"mistral",
+      prompt,
+      stream:false
+    })
+  });
+
+  let j=await res.json();
+  return j.response;
+}
+
+// SEND
+async function send(){
+  let input=document.getElementById("input");
+  let text=input.value;
+  if(!text)return;
+
+  add(text,"user");
+  chats[current].push({role:"user",text});
+  input.value="";
+
+  let system=document.getElementById("system").value;
+  let memory=getMemory();
+
+  let extra="";
+
+  if(text.includes("!search")){
+    extra+="\nWeb:"+await search(text.replace("!search",""));
+  }
+
+  if(text.includes("hitung")){
+    extra+="\nCalc:"+calc(text.replace("hitung",""));
+  }
+
+  if(fileData){
+    extra+="\nFile:"+fileData.slice(1000);
+  }
+
+  let prompt=system+"\nMemory:\n"+memory+"\nUser:"+text+extra;
+
+  let ai=await callAI(prompt);
+
+  add(ai,"ai");
+  chats[current].push({role:"ai",text:ai});
+
+  speak(ai);
+  save();
+}
+
+// AUTO MODE
+async function auto(){
+  running=true;
+
+  let goal=document.getElementById("input").value;
+  if(!goal)return;
+
+  let context="";
+  let system=document.getElementById("system").value;
+
+  for(let i=0;i<5;i++){
+    if(!running)break;
+
+    let step=await callAI(system+"\nGoal:"+goal+"\nContext:"+context+"\nNext step?");
+    add("🤖 "+step,"ai");
+
+    if(step.toLowerCase().includes("search")){
+      context+=await search(goal);
+    }
+
+    if(step.toLowerCase().includes("calculate")){
+      context+=calc(goal);
+    }
+
+    if(fileData){
+      context+=fileData.slice(0,500);
+    }
+  }
+
+  let final=await callAI(system+"\nGoal:"+goal+"\nContext:"+context+"\nFinal:");
+  add("✅ "+final,"ai");
+
+  speak(final);
+  running=false;
+}
+
+// STOP
+function stopAuto(){
+  running=false;
+}
+
+// LOAD
+window.onload=()=>{
+  chats[current].forEach(m=>add(m.text,m.role));
+};
+</script>
+
+</body>
+</html>
